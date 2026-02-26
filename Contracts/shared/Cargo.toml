@@ -6,6 +6,9 @@ edition = "2021"
 [dependencies]
 soroban-sdk = { workspace = true, default-features = false }
 
+[features]
+testutils = ["soroban-sdk/testutils"]
+
 [dev-dependencies]
 proptest = "1.4.0"
 token = { path = "../contracts/token" }
