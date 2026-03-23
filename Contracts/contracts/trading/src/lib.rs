@@ -323,5 +323,5 @@ impl UpgradeableTradingContract {
     }
 }
 
-// #[cfg(test)]
-// mod test; // Removed failing tests
+#[cfg(test)]
+mod test;
