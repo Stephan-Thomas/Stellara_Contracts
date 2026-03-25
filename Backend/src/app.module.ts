@@ -34,6 +34,13 @@ import { GdprModule } from './gdpr/gdpr.module';
 import { Consent } from './gdpr/entities/consent.entity';
 import { VoiceJob } from './voice/entities/voice-job.entity';
 import { ThrottleModule } from './throttle/throttle.module';
+import { ContractInteractionModule } from './contract-interaction/contract-interaction.module';
+import { TransactionRecord } from './contract-interaction/entities/transaction-record.entity';
+import { ContractMetadata } from './contract-interaction/entities/contract-metadata.entity';
+import { SearchModule } from './search/search.module';
+import { AdminModule } from './admin/admin.module';
+import { DataExportModule } from './data-export/data-export.module';
+import { ExportJob } from './data-export/entities/export-job.entity';
 
 
 @Module({
@@ -67,6 +74,9 @@ import { ThrottleModule } from './throttle/throttle.module';
           AuditLog,
           Consent,
           VoiceJob,
+          TransactionRecord,
+          ContractMetadata,
+          ExportJob,
         ],
         synchronize: configService.get('NODE_ENV') === 'development',
         logging: configService.get('NODE_ENV') === 'development',
@@ -83,6 +93,10 @@ import { ThrottleModule } from './throttle/throttle.module';
     AuditModule,
     GdprModule,
     ThrottleModule,
+    ContractInteractionModule,
+    SearchModule,
+    AdminModule,
+    DataExportModule,
   ],
 
   controllers: [AppController],
