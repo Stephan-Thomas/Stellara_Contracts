@@ -237,6 +237,10 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   TRAFFIC_STATUS?: string;
+
+  @IsOptional()
+  @IsNumber()
+  WEBHOOK_REQUEST_TIMEOUT_MS?: number;
 }
 
 export function validateEnv(config: Record<string, unknown>) {

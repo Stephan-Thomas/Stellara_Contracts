@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { PrismaService } from '../prisma.service';
 import {
@@ -12,7 +7,6 @@ import {
   UpdateWebhookSubscriptionDto,
 } from './dto/webhook.dto';
 
-type SubscriptionStatus = 'ACTIVE' | 'PAUSED' | 'DISABLED';
 type DeliveryStatus = 'PENDING' | 'RETRYING' | 'DELIVERED' | 'FAILED';
 
 const MAX_ATTEMPTS = 10;
@@ -323,31 +317,6 @@ export class WebhooksService {
       const responseBody = await response.text();
       const success = response.status >= 200 && response.status < 300;
 
-      await (this.prisma as any).webhookDelivery.update({
-        where: { id: delivery.id },
-        data: success
-          ? {
-              status: 'DELIVERED',
-              attempts: attemptNumber,
-              deliveredAt: new Date(),
-              lastAttemptAt: new Date(),
-              lastResponseCode: response.status,
-              lastResponseBody: responseBody.slice(0, 4000),
-              errorMessage: null,
-              signature,
-            }
-          : {
-              status: attemptNumber >= MAX_ATTEMPTS ? 'FAILED' : 'RETRYING',
-              attempts: attemptNumber,
-              lastAttemptAt: new Date(),
-              lastResponseCode: response.status,
-              lastResponseBody: responseBody.slice(0, 4000),
-              errorMessage: `Webhook returned status ${response.status}`,
-              nextAttemptAt: this.calculateNextAttemptAt(attemptNumber),
-              signature,
-            },
-      });
-
       await (this.prisma as any).webhookSubscription.update({
         where: { id: delivery.subscriptionId },
         data: {
@@ -355,14 +324,28 @@ export class WebhooksService {
         },
       });
 
-      if (!success) {
-        throw new BadRequestException(`Webhook endpoint returned ${response.status}`);
+      if (success) {
+        await (this.prisma as any).webhookDelivery.update({
+          where: { id: delivery.id },
+          data: {
+            status: 'DELIVERED',
+            attempts: attemptNumber,
+            deliveredAt: new Date(),
+            lastAttemptAt: new Date(),
+            lastResponseCode: response.status,
+            lastResponseBody: responseBody.slice(0, 4000),
+            errorMessage: null,
+            signature,
+          },
+        });
+
+        return {
+          id: delivery.id,
+          status: 'DELIVERED',
+        };
       }
 
-      return {
-        id: delivery.id,
-        status: 'DELIVERED',
-      };
+      throw new Error(`Webhook endpoint returned status ${response.status}: ${responseBody}`);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Webhook delivery failed';
       this.logger.error(
@@ -476,7 +459,14 @@ export class WebhooksService {
 
   verifySignature(secret: string, timestamp: string, body: string, signature: string) {
     const expected = this.signPayload(secret, timestamp, body);
-    return timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+    const expectedBuffer = Buffer.from(expected);
+    const signatureBuffer = Buffer.from(signature);
+
+    if (expectedBuffer.length !== signatureBuffer.length) {
+      return false;
+    }
+
+    return timingSafeEqual(expectedBuffer, signatureBuffer);
   }
 
   private normalizeHeaders(headers: Record<string, string> | null | undefined) {
