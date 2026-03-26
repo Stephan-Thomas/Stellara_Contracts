@@ -1,8 +1,9 @@
 #![no_std]
 
+use shared::acl::ACL;
 use shared::fees::FeeManager;
 use shared::governance::{GovernanceManager, GovernanceRole, UpgradeProposal};
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Vec};
 
 /// Version of this contract implementation
 const CONTRACT_VERSION: u32 = 1;
@@ -97,13 +98,12 @@ fn require_initialized(env: &Env) -> Result<(), TradeError> {
         Err(TradeError::NotInitialized)
     }
 }
+
 fn read_rate_limit_config(env: &Env) -> RateLimitConfig {
-    // 🔥 Check if config is explicitly set
     if let Some(cfg) = env.storage().persistent().get(&storage_keys::RL_CFG) {
         return cfg;
     }
 
-    // 🚀 DEFAULT = VERY HIGH LIMIT (so tests don't break)
     RateLimitConfig {
         window_secs: 1,
         user_limit: u32::MAX,
@@ -143,7 +143,6 @@ fn set_global_window_usage(env: &Env, window: u64, count: u32) {
 }
 
 fn check_and_consume_trade_rate_limit(env: &Env, trader: &Address) -> Result<(), TradeError> {
-    // 🚀 DISABLE rate limiting in test builds
     #[cfg(test)]
     {
         return Ok(());
@@ -191,7 +190,7 @@ impl UpgradeableTradingContract {
     pub fn init(
         env: Env,
         admin: Address,
-        approvers: soroban_sdk::Vec<Address>,
+        approvers: Vec<Address>,
         executor: Address,
     ) -> Result<(), TradeError> {
         if env.storage().persistent().has(&storage_keys::INIT) {
@@ -199,11 +198,20 @@ impl UpgradeableTradingContract {
         }
 
         let mut roles = soroban_sdk::Map::new(&env);
-        roles.set(admin, GovernanceRole::Admin);
+        roles.set(admin.clone(), GovernanceRole::Admin);
         for approver in approvers.iter() {
             roles.set(approver, GovernanceRole::Approver);
         }
         roles.set(executor, GovernanceRole::Executor);
+
+        let admin_role = Symbol::new(&env, "admin");
+        ACL::create_role(&env, &admin_role);
+        ACL::assign_role(&env, &admin, &admin_role);
+        ACL::assign_permission(&env, &admin_role, &Symbol::new(&env, "set_rate"));
+        ACL::assign_permission(&env, &admin_role, &Symbol::new(&env, "premium"));
+        ACL::assign_permission(&env, &admin_role, &Symbol::new(&env, "pause"));
+        ACL::assign_permission(&env, &admin_role, &Symbol::new(&env, "unpause"));
+        ACL::assign_permission(&env, &admin_role, &Symbol::new(&env, "manage_acl"));
 
         let stats = TradeStats {
             total_trades: 0,
@@ -290,7 +298,7 @@ impl UpgradeableTradingContract {
         Ok(trade_id)
     }
 
-    /// Set rate-limit config (admin only)
+    /// Set rate-limit config (ACL protected)
     pub fn set_rate_limit_config(
         env: Env,
         admin: Address,
@@ -301,7 +309,7 @@ impl UpgradeableTradingContract {
     ) -> Result<(), TradeError> {
         admin.require_auth();
         require_initialized(&env)?;
-        Self::require_admin_role(&env, &admin)?;
+        ACL::require_permission(&env, &admin, &Symbol::new(&env, "set_rate"));
 
         if window_secs == 0 || user_limit == 0 || global_limit == 0 || premium_user_limit == 0 {
             return Err(TradeError::InvalidRateLimitConfig);
@@ -318,7 +326,7 @@ impl UpgradeableTradingContract {
         Ok(())
     }
 
-    /// Mark or unmark a premium user (admin only)
+    /// Mark or unmark a premium user (ACL protected)
     pub fn set_premium_user(
         env: Env,
         admin: Address,
@@ -327,7 +335,7 @@ impl UpgradeableTradingContract {
     ) -> Result<(), TradeError> {
         admin.require_auth();
         require_initialized(&env)?;
-        Self::require_admin_role(&env, &admin)?;
+        ACL::require_permission(&env, &admin, &Symbol::new(&env, "premium"));
 
         let mut premium_users: soroban_sdk::Map<Address, bool> = env
             .storage()
@@ -375,8 +383,8 @@ impl UpgradeableTradingContract {
     }
 
     /// Get recent trades
-    pub fn get_recent_trades(env: Env, count: u32) -> soroban_sdk::Vec<Trade> {
-        let mut trades = soroban_sdk::Vec::new(&env);
+    pub fn get_recent_trades(env: Env, count: u32) -> Vec<Trade> {
+        let mut trades = Vec::new(&env);
         let trade_count: u64 = env
             .storage()
             .persistent()
@@ -400,39 +408,97 @@ impl UpgradeableTradingContract {
         trades
     }
 
-    /// Pause the contract (admin only)
+    /// Pause the contract (ACL protected)
     pub fn pause(env: Env, admin: Address) -> Result<(), TradeError> {
         admin.require_auth();
         require_initialized(&env)?;
-        Self::require_admin_role(&env, &admin)?;
+        ACL::require_permission(&env, &admin, &Symbol::new(&env, "pause"));
         env.storage().persistent().set(&storage_keys::PAUSE, &true);
         Ok(())
     }
 
-    /// Unpause the contract (admin only)
+    /// Unpause the contract (ACL protected)
     pub fn unpause(env: Env, admin: Address) -> Result<(), TradeError> {
         admin.require_auth();
         require_initialized(&env)?;
-        Self::require_admin_role(&env, &admin)?;
+        ACL::require_permission(&env, &admin, &Symbol::new(&env, "unpause"));
         env.storage().persistent().set(&storage_keys::PAUSE, &false);
         Ok(())
     }
 
-    /// Helper: Verify admin role
-    fn require_admin_role(env: &Env, admin: &Address) -> Result<(), TradeError> {
-        let roles: soroban_sdk::Map<Address, GovernanceRole> = env
-            .storage()
-            .persistent()
-            .get(&storage_keys::ROLES)
-            .ok_or(TradeError::Unauthorized)?;
-
-        let role = roles.get(admin.clone()).ok_or(TradeError::Unauthorized)?;
-
-        if role != GovernanceRole::Admin {
-            return Err(TradeError::Unauthorized);
-        }
-
+    pub fn create_role(env: Env, admin: Address, role: Symbol) -> Result<(), TradeError> {
+        admin.require_auth();
+        require_initialized(&env)?;
+        ACL::require_permission(&env, &admin, &Symbol::new(&env, "manage_acl"));
+        ACL::create_role(&env, &role);
         Ok(())
+    }
+
+    pub fn assign_role(
+        env: Env,
+        admin: Address,
+        user: Address,
+        role: Symbol,
+    ) -> Result<(), TradeError> {
+        admin.require_auth();
+        require_initialized(&env)?;
+        ACL::require_permission(&env, &admin, &Symbol::new(&env, "manage_acl"));
+        ACL::assign_role(&env, &user, &role);
+        Ok(())
+    }
+
+    pub fn assign_permission(
+        env: Env,
+        admin: Address,
+        role: Symbol,
+        permission: Symbol,
+    ) -> Result<(), TradeError> {
+        admin.require_auth();
+        require_initialized(&env)?;
+        ACL::require_permission(&env, &admin, &Symbol::new(&env, "manage_acl"));
+        ACL::assign_permission(&env, &role, &permission);
+        Ok(())
+    }
+
+    pub fn assign_permissions_batch(
+        env: Env,
+        admin: Address,
+        role: Symbol,
+        permissions: Vec<Symbol>,
+    ) -> Result<(), TradeError> {
+        admin.require_auth();
+        require_initialized(&env)?;
+        ACL::require_permission(&env, &admin, &Symbol::new(&env, "manage_acl"));
+        ACL::assign_permissions_batch(&env, &role, &permissions);
+        Ok(())
+    }
+
+    pub fn set_role_parent(
+        env: Env,
+        admin: Address,
+        child: Symbol,
+        parent: Symbol,
+    ) -> Result<(), TradeError> {
+        admin.require_auth();
+        require_initialized(&env)?;
+        ACL::require_permission(&env, &admin, &Symbol::new(&env, "manage_acl"));
+        ACL::set_parent_role(&env, &child, &parent);
+        Ok(())
+    }
+
+    pub fn get_user_roles(env: Env, user: Address) -> Result<Vec<Symbol>, TradeError> {
+        require_initialized(&env)?;
+        Ok(ACL::get_user_roles(&env, &user))
+    }
+
+    pub fn get_role_permissions(env: Env, role: Symbol) -> Result<Vec<Symbol>, TradeError> {
+        require_initialized(&env)?;
+        Ok(ACL::get_role_permissions(&env, &role))
+    }
+
+    pub fn has_permission(env: Env, user: Address, permission: Symbol) -> Result<bool, TradeError> {
+        require_initialized(&env)?;
+        Ok(ACL::has_permission(&env, &user, &permission))
     }
 
     /// Propose an upgrade via governance
@@ -441,7 +507,7 @@ impl UpgradeableTradingContract {
         admin: Address,
         new_contract_hash: Symbol,
         description: Symbol,
-        approvers: soroban_sdk::Vec<Address>,
+        approvers: Vec<Address>,
         approval_threshold: u32,
         timelock_delay: u64,
     ) -> Result<u64, TradeError> {
