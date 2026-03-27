@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol, Map};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, Symbol};
 
 #[contract]
 pub struct SocialRewardsContract;
@@ -62,8 +62,12 @@ impl SocialRewardsContract {
         }
 
         env.storage().persistent().set(&init_key, &true);
-        env.storage().persistent().set(&symbol_short!("admin"), &admin);
-        env.storage().persistent().set(&symbol_short!("eng_cnt"), &0u64);
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("admin"), &admin);
+        env.storage()
+            .persistent()
+            .set(&symbol_short!("eng_cnt"), &0u64);
 
         Ok(())
     }
@@ -85,7 +89,7 @@ impl SocialRewardsContract {
         }
 
         let current_timestamp = env.ledger().timestamp();
-        
+
         // Get next engagement ID
         let counter_key = symbol_short!("eng_cnt");
         let engagement_id: u64 = env.storage().persistent().get(&counter_key).unwrap_or(0u64);
@@ -116,7 +120,8 @@ impl SocialRewardsContract {
             metadata,
         };
 
-        env.events().publish((symbol_short!("eng_rec"),), engagement_event);
+        env.events()
+            .publish((symbol_short!("eng_rec"),), engagement_event);
 
         Ok(next_id)
     }
@@ -168,7 +173,8 @@ impl SocialRewardsContract {
             timestamp: current_timestamp,
         };
 
-        env.events().publish((symbol_short!("rew_dist"),), reward_event);
+        env.events()
+            .publish((symbol_short!("rew_dist"),), reward_event);
 
         Ok(())
     }
@@ -185,12 +191,8 @@ impl SocialRewardsContract {
         }
 
         // Record engagement as generic reward activity
-        let _engagement_id = Self::record_engagement(
-            env,
-            user,
-            Symbol::new(&env, "reward"),
-            amount,
-        )?;
+        let _engagement_id =
+            Self::record_engagement(env, user, Symbol::new(&env, "reward"), amount)?;
 
         Ok(())
     }

@@ -237,7 +237,8 @@ impl AcademyVestingContract {
             granted_by: admin,
         };
 
-        env.events().publish((symbol_short!("cred_iss"),), credential_event);
+        env.events()
+            .publish((symbol_short!("cred_iss"),), credential_event);
 
         Ok(next_id)
     }
@@ -326,7 +327,8 @@ impl AcademyVestingContract {
             claimed_at: current_time,
         };
 
-        env.events().publish((symbol_short!("v_claimed"),), vesting_claimed);
+        env.events()
+            .publish((symbol_short!("v_claimed"),), vesting_claimed);
 
         Ok(vested_amount)
     }

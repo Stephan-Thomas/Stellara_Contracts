@@ -366,7 +366,8 @@ impl UpgradeableMessagingContract {
             payload_length: payload_len as u32,
         };
 
-        env.events().publish((symbol_short!("msg_sent"),), message_sent_event);
+        env.events()
+            .publish((symbol_short!("msg_sent"),), message_sent_event);
 
         Ok(message_id)
     }
@@ -421,7 +422,8 @@ impl UpgradeableMessagingContract {
             timestamp: current_timestamp,
         };
 
-        env.events().publish((symbol_short!("msg_read"),), message_read_event);
+        env.events()
+            .publish((symbol_short!("msg_read"),), message_read_event);
 
         Ok(())
     }
